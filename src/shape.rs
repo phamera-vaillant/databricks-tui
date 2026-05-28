@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -9,17 +11,21 @@ pub enum Status {
     Unknown(String),
 }
 
-impl Status {
-    pub fn from_str(s: &str) -> Self {
-        match s.to_uppercase().as_str() {
+impl FromStr for Status {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_uppercase().as_str() {
             "RUNNING" => Status::Running,
             "IDLE" | "STOPPED" | "TERMINATED" | "DELETED" => Status::Stopped,
             "PENDING" | "STARTING" | "RESTARTING" | "DELETING" => Status::Pending,
             "FAILED" | "ERROR" => Status::Failed,
             other => Status::Unknown(other.to_string()),
-        }
+        })
     }
+}
 
+impl Status {
     pub fn label(&self) -> &str {
         match self {
             Status::Running => "RUNNING",

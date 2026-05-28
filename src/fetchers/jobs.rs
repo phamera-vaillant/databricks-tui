@@ -1,5 +1,5 @@
 use crate::cli::DatabricksCli;
-use crate::shape::{ListItem, Shape, Status};
+use crate::shape::{ListItem, Shape};
 use anyhow::Result;
 
 pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
@@ -13,7 +13,11 @@ pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
                         .as_str()
                         .unwrap_or("unknown")
                         .to_string(),
-                    status: Status::from_str(j["settings"]["format"].as_str().unwrap_or("")),
+                    status: j["settings"]["format"]
+                        .as_str()
+                        .unwrap_or("")
+                        .parse()
+                        .unwrap(),
                     detail: j["job_id"].as_u64().map(|id| id.to_string()),
                 })
                 .collect()

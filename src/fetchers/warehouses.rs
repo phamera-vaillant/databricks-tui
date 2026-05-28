@@ -1,5 +1,5 @@
 use crate::cli::DatabricksCli;
-use crate::shape::{ListItem, Shape, Status};
+use crate::shape::{ListItem, Shape};
 use anyhow::Result;
 
 pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
@@ -10,7 +10,7 @@ pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
             arr.iter()
                 .map(|w| ListItem {
                     name: w["name"].as_str().unwrap_or("unknown").to_string(),
-                    status: Status::from_str(w["state"].as_str().unwrap_or("")),
+                    status: w["state"].as_str().unwrap_or("").parse().unwrap(),
                     detail: w["cluster_size"].as_str().map(str::to_string),
                 })
                 .collect()
