@@ -4,7 +4,7 @@ use anyhow::Result;
 
 pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
     let json = cli.run(&["jobs", "list"]).await?;
-    let items = json["jobs"]
+    let items = json
         .as_array()
         .map(|arr| {
             arr.iter()

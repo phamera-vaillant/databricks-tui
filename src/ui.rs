@@ -84,14 +84,20 @@ fn draw_panel(
                 .iter()
                 .map(|item| {
                     let color = status_color(&item.status);
-                    let line = Line::from(vec![
+                    let mut spans = vec![
                         Span::styled(
                             format!("[{}] ", item.status.label()),
                             Style::default().fg(color),
                         ),
                         Span::raw(item.name.clone()),
-                    ]);
-                    ListItem::new(line)
+                    ];
+                    if let Some(detail) = &item.detail {
+                        spans.push(Span::styled(
+                            format!("  {}", detail),
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
+                    ListItem::new(Line::from(spans))
                 })
                 .collect();
             let list = List::new(list_items).block(block);

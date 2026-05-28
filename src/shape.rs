@@ -13,8 +13,8 @@ impl Status {
     pub fn from_str(s: &str) -> Self {
         match s.to_uppercase().as_str() {
             "RUNNING" => Status::Running,
-            "STOPPED" | "TERMINATED" => Status::Stopped,
-            "PENDING" | "STARTING" | "RESTARTING" => Status::Pending,
+            "IDLE" | "STOPPED" | "TERMINATED" | "DELETED" => Status::Stopped,
+            "PENDING" | "STARTING" | "RESTARTING" | "DELETING" => Status::Pending,
             "FAILED" | "ERROR" => Status::Failed,
             other => Status::Unknown(other.to_string()),
         }
@@ -23,10 +23,10 @@ impl Status {
     pub fn label(&self) -> &str {
         match self {
             Status::Running => "RUNNING",
-            Status::Stopped => "STOPPED",
+            Status::Stopped => "IDLE",
             Status::Pending => "PENDING",
             Status::Failed => "FAILED",
-            Status::Unknown(_) => "UNKNOWN",
+            Status::Unknown(s) => s.as_str(),
         }
     }
 }

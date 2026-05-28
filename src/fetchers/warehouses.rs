@@ -1,29 +1,20 @@
 use crate::cli::DatabricksCli;
-use crate::shape::{Shape, TableData};
+use crate::shape::{ListItem, Shape, Status};
 use anyhow::Result;
 
 pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
     let json = cli.run(&["warehouses", "list"]).await?;
-    let headers = vec![
-        "Name".to_string(),
-        "State".to_string(),
-        "Size".to_string(),
-        "ID".to_string(),
-    ];
-    let rows = json["warehouses"]
+    let items = json
         .as_array()
         .map(|arr| {
             arr.iter()
-                .map(|w| {
-                    vec![
-                        w["name"].as_str().unwrap_or("").to_string(),
-                        w["state"].as_str().unwrap_or("").to_string(),
-                        w["cluster_size"].as_str().unwrap_or("").to_string(),
-                        w["id"].as_str().unwrap_or("").to_string(),
-                    ]
+                .map(|w| ListItem {
+                    name: w["name"].as_str().unwrap_or("unknown").to_string(),
+                    status: Status::from_str(w["state"].as_str().unwrap_or("")),
+                    detail: w["cluster_size"].as_str().map(str::to_string),
                 })
                 .collect()
         })
         .unwrap_or_default();
-    Ok(Shape::Table(TableData { headers, rows }))
+    Ok(Shape::List(items))
 }
