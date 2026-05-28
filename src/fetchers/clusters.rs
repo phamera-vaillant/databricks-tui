@@ -9,13 +9,8 @@ pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
         .map(|arr| {
             arr.iter()
                 .map(|c| ListItem {
-                    name: c["cluster_name"]
-                        .as_str()
-                        .unwrap_or("unknown")
-                        .to_string(),
-                    status: Status::from_str(
-                        c["state"].as_str().unwrap_or(""),
-                    ),
+                    name: c["cluster_name"].as_str().unwrap_or("unknown").to_string(),
+                    status: Status::from_str(c["state"].as_str().unwrap_or("")),
                     detail: c["cluster_id"].as_str().map(str::to_string),
                 })
                 .collect()

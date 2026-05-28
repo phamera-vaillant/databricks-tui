@@ -45,11 +45,7 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
         Some(Shape::Badge(b)) => format!(" {} {} ", b.label, b.value),
         _ => " Databricks TUI ".to_string(),
     };
-    let status = if app.loading {
-        " [refreshing…]"
-    } else {
-        ""
-    };
+    let status = if app.loading { " [refreshing…]" } else { "" };
     let title = format!("{}{}", badge_text, status);
     let p = Paragraph::new(title)
         .block(Block::default().borders(Borders::ALL))
@@ -57,15 +53,11 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(p, area);
 }
 
-fn draw_panel(
-    f: &mut Frame,
-    area: Rect,
-    title: &str,
-    shape: Option<&Shape>,
-    focused: bool,
-) {
+fn draw_panel(f: &mut Frame, area: Rect, title: &str, shape: Option<&Shape>, focused: bool) {
     let border_style = if focused {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -107,7 +99,9 @@ fn draw_panel(
             let header_cells: Vec<Cell> = data
                 .headers
                 .iter()
-                .map(|h| Cell::from(h.as_str()).style(Style::default().add_modifier(Modifier::BOLD)))
+                .map(|h| {
+                    Cell::from(h.as_str()).style(Style::default().add_modifier(Modifier::BOLD))
+                })
                 .collect();
             let header = Row::new(header_cells).style(Style::default().fg(Color::Cyan));
             let rows: Vec<Row> = data

@@ -13,9 +13,7 @@ pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
                         .as_str()
                         .unwrap_or("unknown")
                         .to_string(),
-                    status: Status::from_str(
-                        j["settings"]["format"].as_str().unwrap_or(""),
-                    ),
+                    status: Status::from_str(j["settings"]["format"].as_str().unwrap_or("")),
                     detail: j["job_id"].as_u64().map(|id| id.to_string()),
                 })
                 .collect()

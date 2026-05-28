@@ -56,12 +56,18 @@ impl App {
     }
 
     pub fn focus_next(&mut self) {
-        let idx = Panel::ALL.iter().position(|p| p == &self.focus).unwrap_or(0);
+        let idx = Panel::ALL
+            .iter()
+            .position(|p| p == &self.focus)
+            .unwrap_or(0);
         self.focus = Panel::ALL[(idx + 1) % Panel::ALL.len()];
     }
 
     pub fn focus_prev(&mut self) {
-        let idx = Panel::ALL.iter().position(|p| p == &self.focus).unwrap_or(0);
+        let idx = Panel::ALL
+            .iter()
+            .position(|p| p == &self.focus)
+            .unwrap_or(0);
         self.focus = Panel::ALL[(idx + Panel::ALL.len() - 1) % Panel::ALL.len()];
     }
 
