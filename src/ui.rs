@@ -16,6 +16,15 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     draw_header(f, root[0], app);
 
+    if app.zoomed {
+        let idx = Panel::ALL
+            .iter()
+            .position(|p| p == &app.focus)
+            .unwrap_or(0);
+        draw_panel(f, root[1], app.focus.title(), app.shapes[idx].as_ref(), true);
+        return;
+    }
+
     let body = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -45,8 +54,13 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
         Some(Shape::Badge(b)) => format!(" {} {} ", b.label, b.value),
         _ => " Databricks TUI ".to_string(),
     };
+    let zoom_hint = if app.zoomed {
+        format!(" [zoomed: {}] [Esc/z to exit]", app.focus.title())
+    } else {
+        " [z/Enter: zoom]".to_string()
+    };
     let status = if app.loading { " [refreshing…]" } else { "" };
-    let title = format!("{}{}", badge_text, status);
+    let title = format!("{}{}{}", badge_text, zoom_hint, status);
     let p = Paragraph::new(title)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Cyan));

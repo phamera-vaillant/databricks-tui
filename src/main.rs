@@ -46,29 +46,49 @@ async fn run(
     app: &mut App,
     cli: &DatabricksCli,
 ) -> Result<()> {
+    terminal.draw(|f| ui::draw(f, app))?;
+
     loop {
+        let mut needs_redraw = false;
+
         if app.needs_refresh() {
             app.refresh(cli).await.ok();
+            needs_redraw = true;
         }
-
-        terminal.draw(|f| ui::draw(f, app))?;
 
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
                 match (key.code, key.modifiers) {
                     (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => break,
                     (KeyCode::Tab, _) | (KeyCode::Right, _) | (KeyCode::Char('l'), _) => {
-                        app.focus_next()
+                        app.focus_next();
+                        needs_redraw = true;
                     }
                     (KeyCode::BackTab, _) | (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
-                        app.focus_prev()
+                        app.focus_prev();
+                        needs_redraw = true;
                     }
                     (KeyCode::Char('r'), _) => {
                         app.refresh(cli).await.ok();
+                        needs_redraw = true;
+                    }
+                    (KeyCode::Enter, _) | (KeyCode::Char('z'), _) => {
+                        app.toggle_zoom();
+                        needs_redraw = true;
+                    }
+                    (KeyCode::Esc, _) => {
+                        if app.zoomed {
+                            app.zoomed = false;
+                            needs_redraw = true;
+                        }
                     }
                     _ => {}
                 }
             }
+        }
+
+        if needs_redraw {
+            terminal.draw(|f| ui::draw(f, app))?;
         }
     }
     Ok(())

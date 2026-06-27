@@ -32,6 +32,7 @@ impl Panel {
 
 pub struct App {
     pub focus: Panel,
+    pub zoomed: bool,
     pub shapes: Vec<Option<Shape>>,
     pub user_badge: Option<Shape>,
     pub error: Option<String>,
@@ -44,6 +45,7 @@ impl App {
     pub fn new(refresh_secs: u64) -> Self {
         Self {
             focus: Panel::Clusters,
+            zoomed: false,
             shapes: vec![None, None, None, None],
             user_badge: None,
             error: None,
@@ -53,6 +55,10 @@ impl App {
                 .unwrap_or(Instant::now()),
             loading: false,
         }
+    }
+
+    pub fn toggle_zoom(&mut self) {
+        self.zoomed = !self.zoomed;
     }
 
     pub fn focus_next(&mut self) {
