@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
@@ -8,7 +8,8 @@ use crossterm::{
 use databricks_tui::{app::App, cli::DatabricksCli, ui};
 use ratatui::backend::CrosstermBackend;
 use std::io;
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 #[derive(Parser)]
 #[command(name = "databricks-tui", about = "Terminal dashboard for Databricks")]
@@ -18,12 +19,26 @@ struct Cli {
 
     #[arg(long, default_value = "30", help = "Auto-refresh interval in seconds")]
     refresh: u64,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Upgrade to the latest release from GitHub
+    Upgrade,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Cli::parse();
-    let cli = DatabricksCli::new(args.profile);
+
+    if let Some(Command::Upgrade) = args.command {
+        return tokio::task::spawn_blocking(upgrade).await?;
+    }
+
+    let cli = Arc::new(DatabricksCli::new(args.profile));
     let mut app = App::new(args.refresh);
 
     enable_raw_mode()?;
@@ -41,22 +56,65 @@ async fn main() -> Result<()> {
     result
 }
 
+fn upgrade() -> Result<()> {
+    let target = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "macos-arm64"
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        "macos-x86_64"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "linux-x86_64"
+    } else {
+        anyhow::bail!("no prebuilt binary for this platform — upgrade with `cargo install`");
+    };
+
+    let status = self_update::backends::github::Update::configure()
+        .repo_owner("pjhamera")
+        .repo_name("databricks-tui")
+        .bin_name("databricks-tui")
+        .target(target)
+        .show_download_progress(true)
+        .current_version(env!("CARGO_PKG_VERSION"))
+        .build()?
+        .update()?;
+
+    if status.updated() {
+        println!("Upgraded to {}", status.version());
+    } else {
+        println!("Already up to date ({})", status.version());
+    }
+    Ok(())
+}
+
 async fn run(
     terminal: &mut ratatui::Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
-    cli: &DatabricksCli,
+    cli: &Arc<DatabricksCli>,
 ) -> Result<()> {
     terminal.draw(|f| ui::draw(f, app))?;
+    let mut last_tick = Instant::now();
 
     loop {
-        let mut needs_redraw = false;
+        let mut needs_redraw = app.poll_refresh();
 
-        if app.needs_refresh() {
-            app.refresh(cli).await.ok();
+        // Redraw once a second while idle so the "updated Ns ago" counter stays live.
+        if last_tick.elapsed() >= Duration::from_secs(1) {
+            last_tick = Instant::now();
             needs_redraw = true;
         }
 
-        if event::poll(Duration::from_millis(250))? {
+        if app.needs_refresh() {
+            app.start_refresh(cli);
+            needs_redraw = true;
+        }
+
+        // Poll faster while loading so the spinner animates smoothly.
+        let timeout = if app.loading {
+            Duration::from_millis(100)
+        } else {
+            Duration::from_millis(250)
+        };
+
+        if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 match (key.code, key.modifiers) {
                     (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => break,
@@ -69,22 +127,25 @@ async fn run(
                         needs_redraw = true;
                     }
                     (KeyCode::Char('r'), _) => {
-                        app.refresh(cli).await.ok();
+                        app.start_refresh(cli);
                         needs_redraw = true;
                     }
                     (KeyCode::Enter, _) | (KeyCode::Char('z'), _) => {
                         app.toggle_zoom();
                         needs_redraw = true;
                     }
-                    (KeyCode::Esc, _) => {
-                        if app.zoomed {
-                            app.zoomed = false;
-                            needs_redraw = true;
-                        }
+                    (KeyCode::Esc, _) if app.zoomed => {
+                        app.zoomed = false;
+                        needs_redraw = true;
                     }
                     _ => {}
                 }
             }
+        }
+
+        if app.loading {
+            app.tick_spinner();
+            needs_redraw = true;
         }
 
         if needs_redraw {
