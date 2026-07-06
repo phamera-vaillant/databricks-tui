@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
@@ -28,14 +28,22 @@ struct Cli {
 enum Command {
     /// Upgrade to the latest release from GitHub
     Upgrade,
+    /// Remove the databricks-tui binary from your system
+    Uninstall {
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Cli::parse();
 
-    if let Some(Command::Upgrade) = args.command {
-        return tokio::task::spawn_blocking(upgrade).await?;
+    match args.command {
+        Some(Command::Upgrade) => return tokio::task::spawn_blocking(upgrade).await?,
+        Some(Command::Uninstall { yes }) => return uninstall(yes),
+        None => {}
     }
 
     let cli = Arc::new(DatabricksCli::new(args.profile));
@@ -82,6 +90,25 @@ fn upgrade() -> Result<()> {
     } else {
         println!("Already up to date ({})", status.version());
     }
+    Ok(())
+}
+
+fn uninstall(yes: bool) -> Result<()> {
+    use std::io::Write;
+
+    let exe = std::env::current_exe().context("could not locate the running binary")?;
+    if !yes {
+        print!("Remove {}? [y/N] ", exe.display());
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        if !matches!(input.trim(), "y" | "Y" | "yes") {
+            println!("Aborted.");
+            return Ok(());
+        }
+    }
+    std::fs::remove_file(&exe).with_context(|| format!("failed to remove {}", exe.display()))?;
+    println!("Removed {}", exe.display());
     Ok(())
 }
 

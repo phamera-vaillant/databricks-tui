@@ -36,6 +36,16 @@ databricks-tui upgrade
 Detects your platform, checks the latest GitHub release, and replaces the
 binary in place if a newer version exists.
 
+## Uninstall
+
+```bash
+databricks-tui uninstall          # asks for confirmation
+databricks-tui uninstall --yes    # no prompt
+```
+
+Removes the binary from wherever it is installed. The app keeps no other
+files on your system.
+
 ## Usage
 
 ```bash
