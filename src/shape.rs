@@ -50,6 +50,8 @@ pub struct ListItem {
     pub name: String,
     pub status: Status,
     pub detail: Option<String>,
+    /// Resource id used to fetch the full detail view.
+    pub id: Option<String>,
 }
 
 #[derive(Debug, Clone)]

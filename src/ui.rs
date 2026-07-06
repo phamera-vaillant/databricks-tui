@@ -4,7 +4,10 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Cell, List, ListItem, Padding, Paragraph, Row, Table},
+    widgets::{
+        Block, BorderType, Borders, Cell, List, ListItem, ListState, Padding, Paragraph, Row,
+        Table, Wrap,
+    },
     Frame,
 };
 
@@ -81,6 +84,11 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_header(f, root[0], app, &p);
     draw_footer(f, root[2], app, &p);
 
+    if app.detail.is_some() {
+        draw_detail(f, root[1], app, &p);
+        return;
+    }
+
     if app.zoomed {
         let idx = Panel::ALL
             .iter()
@@ -92,6 +100,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             app.focus,
             app.shapes[idx].as_ref(),
             true,
+            Some(app.selection(idx)),
             app.spinner(),
             &p,
         );
@@ -118,7 +127,52 @@ pub fn draw(f: &mut Frame, app: &App) {
     for (i, panel) in Panel::ALL.iter().enumerate() {
         let focused = app.focus == *panel;
         let shape = app.shapes[i].as_ref();
-        draw_panel(f, areas[i], *panel, shape, focused, app.spinner(), &p);
+        let selected = focused.then(|| app.selection(i));
+        draw_panel(
+            f,
+            areas[i],
+            *panel,
+            shape,
+            focused,
+            selected,
+            app.spinner(),
+            &p,
+        );
+    }
+}
+
+fn draw_detail(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
+    let d = app.detail.as_ref().unwrap();
+    let acc = accent(d.panel, p);
+    let title = Line::from(vec![
+        Span::styled(format!(" {} ", d.panel.icon()), Style::default().fg(acc)),
+        Span::styled(
+            format!("{} · {} ", d.panel.title(), d.name),
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(acc).add_modifier(Modifier::BOLD))
+        .padding(Padding::horizontal(1));
+
+    match &d.content {
+        None => {
+            let par = Paragraph::new(format!("{} Loading…", app.spinner()))
+                .style(Style::default().fg(p.warn))
+                .block(block);
+            f.render_widget(par, area);
+        }
+        Some(text) => {
+            let par = Paragraph::new(text.as_str())
+                .style(Style::default().fg(p.text))
+                .wrap(Wrap { trim: false })
+                .scroll((d.scroll, 0))
+                .block(block);
+            f.render_widget(par, area);
+        }
     }
 }
 
@@ -177,23 +231,43 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
     let key =
         |k: &'static str| Span::styled(k, Style::default().fg(p.key).add_modifier(Modifier::BOLD));
     let dim = |t: &'static str| Span::styled(t, Style::default().fg(p.dim));
-    let spans = vec![
-        dim(" "),
-        key("tab"),
-        dim("/"),
-        key("h"),
-        dim("/"),
-        key("l"),
-        dim(" switch   "),
-        key("z"),
-        dim(if app.zoomed { " unzoom   " } else { " zoom   " }),
-        key("t"),
-        dim(" theme   "),
-        key("r"),
-        dim(" refresh   "),
-        key("q"),
-        dim(" quit"),
-    ];
+    let spans = if app.detail.is_some() {
+        vec![
+            dim(" "),
+            key("esc"),
+            dim(" back   "),
+            key("j"),
+            dim("/"),
+            key("k"),
+            dim(" scroll   "),
+            key("q"),
+            dim(" quit"),
+        ]
+    } else {
+        vec![
+            dim(" "),
+            key("tab"),
+            dim("/"),
+            key("h"),
+            dim("/"),
+            key("l"),
+            dim(" switch   "),
+            key("j"),
+            dim("/"),
+            key("k"),
+            dim(" select   "),
+            key("enter"),
+            dim(" details   "),
+            key("z"),
+            dim(if app.zoomed { " unzoom   " } else { " zoom   " }),
+            key("t"),
+            dim(" theme   "),
+            key("r"),
+            dim(" refresh   "),
+            key("q"),
+            dim(" quit"),
+        ]
+    };
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
@@ -204,6 +278,7 @@ fn draw_panel(
     panel: Panel,
     shape: Option<&Shape>,
     focused: bool,
+    selected: Option<usize>,
     spinner: &str,
     p: &Palette,
 ) {
@@ -267,8 +342,16 @@ fn draw_panel(
                     ListItem::new(Line::from(spans))
                 })
                 .collect();
-            let list = List::new(list_items).block(block);
-            f.render_widget(list, area);
+            let list = List::new(list_items)
+                .block(block)
+                .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+            match selected {
+                Some(sel) => {
+                    let mut state = ListState::default().with_selected(Some(sel));
+                    f.render_stateful_widget(list, area, &mut state);
+                }
+                None => f.render_widget(list, area),
+            }
         }
         Some(Shape::Table(data)) => {
             let header_cells: Vec<Cell> = data

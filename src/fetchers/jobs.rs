@@ -19,6 +19,7 @@ pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
                         .parse()
                         .unwrap(),
                     detail: j["job_id"].as_u64().map(|id| id.to_string()),
+                    id: j["job_id"].as_u64().map(|id| id.to_string()),
                 })
                 .collect()
         })

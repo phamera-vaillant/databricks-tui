@@ -65,14 +65,16 @@ them can be slow on busy workspaces.
 |-----|--------|
 | `Tab` / `→` / `l` | Focus next panel |
 | `Shift+Tab` / `←` / `h` | Focus previous panel |
-| `z` / `Enter` | Zoom focused panel to full screen |
-| `Esc` | Exit zoom |
+| `↓` / `j`, `↑` / `k` | Select item in focused panel |
+| `Enter` | Open full details for the selected item |
+| `z` | Zoom focused panel to full screen |
+| `Esc` | Close details / exit zoom |
 | `t` | Toggle light/dark theme |
 | `r` | Force refresh |
 | `q` / `Ctrl+C` | Quit |
 
 Navigation works while zoomed — `Tab`/`h`/`l` jumps straight to the next
-panel full-screen.
+panel full-screen. In the details view, `j`/`k` scroll and `Esc` goes back.
 
 ## Requirements
 

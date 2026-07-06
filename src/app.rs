@@ -3,7 +3,7 @@ use crate::fetchers;
 use crate::shape::Shape;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThemeMode {
@@ -53,6 +53,24 @@ impl Panel {
             Panel::Warehouses => "▣",
         }
     }
+
+    /// The databricks CLI command group whose `get <id>` returns item details.
+    pub fn cli_group(&self) -> &'static str {
+        match self {
+            Panel::Clusters => "clusters",
+            Panel::Jobs => "jobs",
+            Panel::Pipelines => "pipelines",
+            Panel::Warehouses => "warehouses",
+        }
+    }
+}
+
+pub struct Detail {
+    pub panel: Panel,
+    pub name: String,
+    /// None while the fetch is in flight.
+    pub content: Option<String>,
+    pub scroll: u16,
 }
 
 enum Update {
@@ -72,7 +90,10 @@ pub struct App {
     pub refresh_interval: Duration,
     last_refresh: Instant,
     pub loading: bool,
+    pub detail: Option<Detail>,
+    pub selected: [usize; 4],
     pending: Option<mpsc::UnboundedReceiver<Update>>,
+    detail_rx: Option<oneshot::Receiver<String>>,
     in_flight: usize,
     spinner_frame: usize,
 }
@@ -91,9 +112,116 @@ impl App {
                 .checked_sub(Duration::from_secs(refresh_secs + 1))
                 .unwrap_or(Instant::now()),
             loading: false,
+            detail: None,
+            selected: [0; 4],
             pending: None,
+            detail_rx: None,
             in_flight: 0,
             spinner_frame: 0,
+        }
+    }
+
+    fn focus_index(&self) -> usize {
+        Panel::ALL
+            .iter()
+            .position(|p| p == &self.focus)
+            .unwrap_or(0)
+    }
+
+    fn list_len(&self, idx: usize) -> usize {
+        match &self.shapes[idx] {
+            Some(Shape::List(items)) => items.len(),
+            _ => 0,
+        }
+    }
+
+    /// Selection index for a panel, clamped to the current list length.
+    pub fn selection(&self, idx: usize) -> usize {
+        self.selected[idx].min(self.list_len(idx).saturating_sub(1))
+    }
+
+    pub fn select_next(&mut self) {
+        let idx = self.focus_index();
+        let len = self.list_len(idx);
+        if len > 0 {
+            self.selected[idx] = (self.selection(idx) + 1).min(len - 1);
+        }
+    }
+
+    pub fn select_prev(&mut self) {
+        let idx = self.focus_index();
+        self.selected[idx] = self.selection(idx).saturating_sub(1);
+    }
+
+    pub fn open_detail(&mut self, cli: &Arc<DatabricksCli>) {
+        let idx = self.focus_index();
+        let Some(Shape::List(items)) = &self.shapes[idx] else {
+            return;
+        };
+        let Some(item) = items.get(self.selection(idx)) else {
+            return;
+        };
+        let Some(id) = item.id.clone() else {
+            return;
+        };
+        self.detail = Some(Detail {
+            panel: self.focus,
+            name: item.name.clone(),
+            content: None,
+            scroll: 0,
+        });
+
+        let (tx, rx) = oneshot::channel();
+        self.detail_rx = Some(rx);
+        let cli = Arc::clone(cli);
+        let group = self.focus.cli_group();
+        tokio::spawn(async move {
+            let text = match cli.run(&[group, "get", id.as_str()]).await {
+                Ok(v) => serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
+                Err(e) => format!("{e:#}"),
+            };
+            let _ = tx.send(text);
+        });
+    }
+
+    pub fn close_detail(&mut self) {
+        self.detail = None;
+        self.detail_rx = None;
+    }
+
+    /// Applies a finished detail fetch; returns true if the UI should redraw.
+    pub fn poll_detail(&mut self) -> bool {
+        let Some(rx) = &mut self.detail_rx else {
+            return false;
+        };
+        match rx.try_recv() {
+            Ok(text) => {
+                if let Some(d) = &mut self.detail {
+                    d.content = Some(text);
+                }
+                self.detail_rx = None;
+                true
+            }
+            Err(oneshot::error::TryRecvError::Empty) => false,
+            Err(oneshot::error::TryRecvError::Closed) => {
+                self.detail_rx = None;
+                true
+            }
+        }
+    }
+
+    pub fn detail_scroll(&mut self, delta: i32) {
+        if let Some(d) = &mut self.detail {
+            let max = d
+                .content
+                .as_deref()
+                .map(|c| c.lines().count().saturating_sub(1) as u16)
+                .unwrap_or(0);
+            d.scroll = if delta < 0 {
+                d.scroll.saturating_sub(delta.unsigned_abs() as u16)
+            } else {
+                (d.scroll + delta as u16).min(max)
+            };
         }
     }
 

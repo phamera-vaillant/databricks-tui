@@ -144,6 +144,9 @@ async fn run(
 
     loop {
         let mut needs_redraw = app.poll_refresh();
+        if app.poll_detail() {
+            needs_redraw = true;
+        }
 
         // Redraw once a second while idle so the "updated Ns ago" counter stays live.
         if last_tick.elapsed() >= Duration::from_secs(1) {
@@ -165,33 +168,68 @@ async fn run(
 
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                match (key.code, key.modifiers) {
-                    (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => break,
-                    (KeyCode::Tab, _) | (KeyCode::Right, _) | (KeyCode::Char('l'), _) => {
-                        app.focus_next();
-                        needs_redraw = true;
+                if app.detail.is_some() {
+                    match (key.code, key.modifiers) {
+                        (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                            break
+                        }
+                        (KeyCode::Esc, _) => {
+                            app.close_detail();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
+                            app.detail_scroll(1);
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
+                            app.detail_scroll(-1);
+                            needs_redraw = true;
+                        }
+                        _ => {}
                     }
-                    (KeyCode::BackTab, _) | (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
-                        app.focus_prev();
-                        needs_redraw = true;
+                } else {
+                    match (key.code, key.modifiers) {
+                        (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                            break
+                        }
+                        (KeyCode::Tab, _) | (KeyCode::Right, _) | (KeyCode::Char('l'), _) => {
+                            app.focus_next();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::BackTab, _) | (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
+                            app.focus_prev();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
+                            app.select_next();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
+                            app.select_prev();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Enter, _) => {
+                            app.open_detail(cli);
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Char('r'), _) => {
+                            app.start_refresh(cli);
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Char('t'), _) => {
+                            app.theme = app.theme.toggled();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Char('z'), _) => {
+                            app.toggle_zoom();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Esc, _) if app.zoomed => {
+                            app.zoomed = false;
+                            needs_redraw = true;
+                        }
+                        _ => {}
                     }
-                    (KeyCode::Char('r'), _) => {
-                        app.start_refresh(cli);
-                        needs_redraw = true;
-                    }
-                    (KeyCode::Char('t'), _) => {
-                        app.theme = app.theme.toggled();
-                        needs_redraw = true;
-                    }
-                    (KeyCode::Enter, _) | (KeyCode::Char('z'), _) => {
-                        app.toggle_zoom();
-                        needs_redraw = true;
-                    }
-                    (KeyCode::Esc, _) if app.zoomed => {
-                        app.zoomed = false;
-                        needs_redraw = true;
-                    }
-                    _ => {}
                 }
             }
         }
