@@ -1,11 +1,15 @@
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use databricks_tui::{app::App, cli::DatabricksCli, ui};
+use databricks_tui::{
+    app::{App, ThemeMode},
+    cli::DatabricksCli,
+    ui,
+};
 use ratatui::backend::CrosstermBackend;
 use std::io;
 use std::sync::Arc;
@@ -20,8 +24,26 @@ struct Cli {
     #[arg(long, default_value = "30", help = "Auto-refresh interval in seconds")]
     refresh: u64,
 
+    #[arg(long, value_enum, default_value_t = ThemeArg::Dark, help = "Color theme")]
+    theme: ThemeArg,
+
     #[command(subcommand)]
     command: Option<Command>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ThemeArg {
+    Dark,
+    Light,
+}
+
+impl From<ThemeArg> for ThemeMode {
+    fn from(t: ThemeArg) -> Self {
+        match t {
+            ThemeArg::Dark => ThemeMode::Dark,
+            ThemeArg::Light => ThemeMode::Light,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -47,7 +69,7 @@ async fn main() -> Result<()> {
     }
 
     let cli = Arc::new(DatabricksCli::new(args.profile));
-    let mut app = App::new(args.refresh);
+    let mut app = App::new(args.refresh, args.theme.into());
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -155,6 +177,10 @@ async fn run(
                     }
                     (KeyCode::Char('r'), _) => {
                         app.start_refresh(cli);
+                        needs_redraw = true;
+                    }
+                    (KeyCode::Char('t'), _) => {
+                        app.theme = app.theme.toggled();
                         needs_redraw = true;
                     }
                     (KeyCode::Enter, _) | (KeyCode::Char('z'), _) => {

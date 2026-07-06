@@ -1,4 +1,4 @@
-use crate::app::{App, Panel};
+use crate::app::{App, Panel, ThemeMode};
 use crate::shape::{Shape, Status};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -8,7 +8,67 @@ use ratatui::{
     Frame,
 };
 
+struct Palette {
+    text: Color,
+    dim: Color,
+    border: Color,
+    warn: Color,
+    ok: Color,
+    err: Color,
+    key: Color,
+    brand: Color,
+    clusters: Color,
+    jobs: Color,
+    pipelines: Color,
+    warehouses: Color,
+}
+
+fn palette(mode: ThemeMode) -> Palette {
+    match mode {
+        // Dark theme sticks to ANSI colors so it follows the terminal's own scheme.
+        ThemeMode::Dark => Palette {
+            text: Color::White,
+            dim: Color::DarkGray,
+            border: Color::DarkGray,
+            warn: Color::Yellow,
+            ok: Color::Green,
+            err: Color::Red,
+            key: Color::Cyan,
+            brand: Color::Red,
+            clusters: Color::Cyan,
+            jobs: Color::Magenta,
+            pipelines: Color::Green,
+            warehouses: Color::Blue,
+        },
+        // Light theme uses explicit darker shades that stay readable on a white background.
+        ThemeMode::Light => Palette {
+            text: Color::Black,
+            dim: Color::Rgb(107, 114, 128),
+            border: Color::Rgb(156, 163, 175),
+            warn: Color::Rgb(180, 83, 9),
+            ok: Color::Rgb(21, 128, 61),
+            err: Color::Rgb(185, 28, 28),
+            key: Color::Rgb(8, 145, 178),
+            brand: Color::Rgb(220, 38, 38),
+            clusters: Color::Rgb(8, 145, 178),
+            jobs: Color::Rgb(162, 28, 175),
+            pipelines: Color::Rgb(21, 128, 61),
+            warehouses: Color::Rgb(29, 78, 216),
+        },
+    }
+}
+
+fn accent(panel: Panel, p: &Palette) -> Color {
+    match panel {
+        Panel::Clusters => p.clusters,
+        Panel::Jobs => p.jobs,
+        Panel::Pipelines => p.pipelines,
+        Panel::Warehouses => p.warehouses,
+    }
+}
+
 pub fn draw(f: &mut Frame, app: &App) {
+    let p = palette(app.theme);
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -18,11 +78,14 @@ pub fn draw(f: &mut Frame, app: &App) {
         ])
         .split(f.area());
 
-    draw_header(f, root[0], app);
-    draw_footer(f, root[2], app);
+    draw_header(f, root[0], app, &p);
+    draw_footer(f, root[2], app, &p);
 
     if app.zoomed {
-        let idx = Panel::ALL.iter().position(|p| p == &app.focus).unwrap_or(0);
+        let idx = Panel::ALL
+            .iter()
+            .position(|pn| pn == &app.focus)
+            .unwrap_or(0);
         draw_panel(
             f,
             root[1],
@@ -30,6 +93,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             app.shapes[idx].as_ref(),
             true,
             app.spinner(),
+            &p,
         );
         return;
     }
@@ -54,53 +118,42 @@ pub fn draw(f: &mut Frame, app: &App) {
     for (i, panel) in Panel::ALL.iter().enumerate() {
         let focused = app.focus == *panel;
         let shape = app.shapes[i].as_ref();
-        draw_panel(f, areas[i], *panel, shape, focused, app.spinner());
+        draw_panel(f, areas[i], *panel, shape, focused, app.spinner(), &p);
     }
 }
 
-fn accent(panel: Panel) -> Color {
-    match panel {
-        Panel::Clusters => Color::Cyan,
-        Panel::Jobs => Color::Magenta,
-        Panel::Pipelines => Color::Green,
-        Panel::Warehouses => Color::Blue,
-    }
-}
-
-fn draw_header(f: &mut Frame, area: Rect, app: &App) {
+fn draw_header(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::DarkGray));
+        .border_style(Style::default().fg(p.border));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let mut left = vec![
-        Span::styled(" ◢◤ ", Style::default().fg(Color::Red)),
+        Span::styled(" ◢◤ ", Style::default().fg(p.brand)),
         Span::styled(
             "Databricks",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!(" TUI v{}", env!("CARGO_PKG_VERSION")),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(p.dim),
         ),
     ];
     if let Some(Shape::Badge(b)) = &app.user_badge {
-        left.push(Span::styled("  ·  ", Style::default().fg(Color::DarkGray)));
+        left.push(Span::styled("  ·  ", Style::default().fg(p.dim)));
         left.push(Span::styled(
             format!("{} {}", b.label, b.value),
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(p.key),
         ));
     }
     if app.zoomed {
-        left.push(Span::styled("  ·  ", Style::default().fg(Color::DarkGray)));
+        left.push(Span::styled("  ·  ", Style::default().fg(p.dim)));
         left.push(Span::styled(
             format!("⛶ {}", app.focus.title()),
             Style::default()
-                .fg(accent(app.focus))
+                .fg(accent(app.focus, p))
                 .add_modifier(Modifier::BOLD),
         ));
     }
@@ -109,27 +162,21 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let right = if app.loading {
         Line::from(Span::styled(
             format!("{} refreshing ", app.spinner()),
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(p.warn),
         ))
     } else {
         Line::from(Span::styled(
             format!("updated {}s ago ", app.last_refresh_age().as_secs()),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(p.dim),
         ))
     };
     f.render_widget(Paragraph::new(right).alignment(Alignment::Right), inner);
 }
 
-fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
-    let key = |k: &'static str| {
-        Span::styled(
-            k,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-    };
-    let dim = |t: &'static str| Span::styled(t, Style::default().fg(Color::DarkGray));
+fn draw_footer(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
+    let key =
+        |k: &'static str| Span::styled(k, Style::default().fg(p.key).add_modifier(Modifier::BOLD));
+    let dim = |t: &'static str| Span::styled(t, Style::default().fg(p.dim));
     let spans = vec![
         dim(" "),
         key("tab"),
@@ -140,6 +187,8 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         dim(" switch   "),
         key("z"),
         dim(if app.zoomed { " unzoom   " } else { " zoom   " }),
+        key("t"),
+        dim(" theme   "),
         key("r"),
         dim(" refresh   "),
         key("q"),
@@ -148,6 +197,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_panel(
     f: &mut Frame,
     area: Rect,
@@ -155,20 +205,16 @@ fn draw_panel(
     shape: Option<&Shape>,
     focused: bool,
     spinner: &str,
+    p: &Palette,
 ) {
-    let accent = accent(panel);
+    let accent = accent(panel, p);
     let (border_style, title_style) = if focused {
         (
             Style::default().fg(accent).add_modifier(Modifier::BOLD),
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
         )
     } else {
-        (
-            Style::default().fg(Color::DarkGray),
-            Style::default().fg(Color::Gray),
-        )
+        (Style::default().fg(p.border), Style::default().fg(p.dim))
     };
     let count = match shape {
         Some(Shape::List(items)) => format!(" · {}", items.len()),
@@ -188,25 +234,25 @@ fn draw_panel(
 
     match shape {
         None => {
-            let p = Paragraph::new(format!("{} Loading…", spinner))
-                .style(Style::default().fg(Color::Yellow))
+            let par = Paragraph::new(format!("{} Loading…", spinner))
+                .style(Style::default().fg(p.warn))
                 .block(block);
-            f.render_widget(p, area);
+            f.render_widget(par, area);
         }
         Some(Shape::List(items)) if items.is_empty() => {
-            let p = Paragraph::new("— none —")
-                .style(Style::default().fg(Color::DarkGray))
+            let par = Paragraph::new("— none —")
+                .style(Style::default().fg(p.dim))
                 .block(block);
-            f.render_widget(p, area);
+            f.render_widget(par, area);
         }
         Some(Shape::List(items)) => {
             let list_items: Vec<ListItem> = items
                 .iter()
                 .map(|item| {
-                    let color = status_color(&item.status);
+                    let color = status_color(&item.status, p);
                     let mut spans = vec![
                         Span::styled("● ", Style::default().fg(color)),
-                        Span::styled(item.name.as_str(), Style::default().fg(Color::White)),
+                        Span::styled(item.name.as_str(), Style::default().fg(p.text)),
                         Span::styled(
                             format!("  {}", item.status.label()),
                             Style::default().fg(color).add_modifier(Modifier::DIM),
@@ -215,7 +261,7 @@ fn draw_panel(
                     if let Some(detail) = &item.detail {
                         spans.push(Span::styled(
                             format!("  {}", detail),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(p.dim),
                         ));
                     }
                     ListItem::new(Line::from(spans))
@@ -248,22 +294,26 @@ fn draw_panel(
         }
         Some(Shape::Badge(b)) => {
             let text = format!("{}: {}", b.label, b.value);
-            let p = Paragraph::new(text).block(block);
-            f.render_widget(p, area);
+            let par = Paragraph::new(text)
+                .style(Style::default().fg(p.text))
+                .block(block);
+            f.render_widget(par, area);
         }
         Some(Shape::Text(t)) => {
-            let p = Paragraph::new(t.as_str()).block(block);
-            f.render_widget(p, area);
+            let par = Paragraph::new(t.as_str())
+                .style(Style::default().fg(p.text))
+                .block(block);
+            f.render_widget(par, area);
         }
     }
 }
 
-fn status_color(status: &Status) -> Color {
+fn status_color(status: &Status, p: &Palette) -> Color {
     match status {
-        Status::Running => Color::Green,
-        Status::Stopped => Color::DarkGray,
-        Status::Pending => Color::Yellow,
-        Status::Failed => Color::Red,
-        Status::Unknown(_) => Color::White,
+        Status::Running => p.ok,
+        Status::Stopped => p.dim,
+        Status::Pending => p.warn,
+        Status::Failed => p.err,
+        Status::Unknown(_) => p.text,
     }
 }

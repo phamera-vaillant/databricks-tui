@@ -3,7 +3,18 @@ use crate::shape::{ListItem, Shape};
 use anyhow::Result;
 
 pub async fn fetch(cli: &DatabricksCli) -> Result<Shape> {
-    let json = cli.run(&["clusters", "list"]).await?;
+    // Without a source filter the API also returns every job-created cluster
+    // terminated in the last 30 days, which can be hundreds of entries.
+    let json = cli
+        .run(&[
+            "clusters",
+            "list",
+            "--cluster-sources",
+            "UI",
+            "--cluster-sources",
+            "API",
+        ])
+        .await?;
     let items = json
         .as_array()
         .map(|arr| {

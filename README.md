@@ -52,7 +52,12 @@ files on your system.
 databricks-tui                      # default profile, 30s refresh
 databricks-tui --profile prod       # named CLI profile
 databricks-tui --refresh 10         # refresh every 10 seconds
+databricks-tui --theme light        # light color scheme (default: dark)
 ```
+
+The Clusters pane shows interactive (UI/API-created) clusters only —
+job-created clusters are excluded, both for signal and because listing
+them can be slow on busy workspaces.
 
 ## Keys
 
@@ -62,6 +67,7 @@ databricks-tui --refresh 10         # refresh every 10 seconds
 | `Shift+Tab` / `←` / `h` | Focus previous panel |
 | `z` / `Enter` | Zoom focused panel to full screen |
 | `Esc` | Exit zoom |
+| `t` | Toggle light/dark theme |
 | `r` | Force refresh |
 | `q` / `Ctrl+C` | Quit |
 

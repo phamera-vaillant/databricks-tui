@@ -6,6 +6,21 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ThemeMode {
+    Dark,
+    Light,
+}
+
+impl ThemeMode {
+    pub fn toggled(self) -> Self {
+        match self {
+            ThemeMode::Dark => ThemeMode::Light,
+            ThemeMode::Light => ThemeMode::Dark,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Panel {
     Clusters,
     Jobs,
@@ -49,6 +64,7 @@ const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦
 
 pub struct App {
     pub focus: Panel,
+    pub theme: ThemeMode,
     pub zoomed: bool,
     pub shapes: Vec<Option<Shape>>,
     pub user_badge: Option<Shape>,
@@ -62,9 +78,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(refresh_secs: u64) -> Self {
+    pub fn new(refresh_secs: u64, theme: ThemeMode) -> Self {
         Self {
             focus: Panel::Clusters,
+            theme,
             zoomed: false,
             shapes: vec![None, None, None, None],
             user_badge: None,
