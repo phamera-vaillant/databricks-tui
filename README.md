@@ -2,11 +2,39 @@
 
 Terminal dashboard for Databricks — monitor clusters, jobs, pipelines, and SQL warehouses in one view.
 
+- Four color-coded panes that populate independently as each data source responds
+- Zoom into any pane for a full-screen view
+- Non-blocking background refresh with a live spinner — the UI never freezes
+- Built-in self-upgrade from GitHub releases
+
 ## Install
+
+Download the latest release for your platform from the
+[releases page](https://github.com/pjhamera/databricks-tui/releases):
+
+```bash
+# macOS (Apple Silicon)
+curl -sL https://github.com/pjhamera/databricks-tui/releases/latest/download/databricks-tui-macos-arm64.tar.gz | tar xz
+mv databricks-tui /usr/local/bin/
+```
+
+Artifacts: `databricks-tui-macos-arm64`, `databricks-tui-macos-x86_64`,
+`databricks-tui-linux-x86_64` — each with a `.sha256` checksum.
+
+Or build from source:
 
 ```bash
 cargo install --path .
 ```
+
+## Upgrade
+
+```bash
+databricks-tui upgrade
+```
+
+Detects your platform, checks the latest GitHub release, and replaces the
+binary in place if a newer version exists.
 
 ## Usage
 
@@ -22,8 +50,13 @@ databricks-tui --refresh 10         # refresh every 10 seconds
 |-----|--------|
 | `Tab` / `→` / `l` | Focus next panel |
 | `Shift+Tab` / `←` / `h` | Focus previous panel |
+| `z` / `Enter` | Zoom focused panel to full screen |
+| `Esc` | Exit zoom |
 | `r` | Force refresh |
 | `q` / `Ctrl+C` | Quit |
+
+Navigation works while zoomed — `Tab`/`h`/`l` jumps straight to the next
+panel full-screen.
 
 ## Requirements
 
@@ -31,4 +64,6 @@ databricks-tui --refresh 10         # refresh every 10 seconds
 
 ## Release binaries
 
-Push a `v*` tag to trigger a GitHub Actions build that publishes `.tar.gz` binaries for Linux x86, macOS x86, and macOS ARM.
+Push a `v*` tag to trigger a GitHub Actions build that publishes `.tar.gz`
+binaries (with sha256 checksums and auto-generated release notes) for
+Linux x86_64, macOS x86_64, and macOS ARM.
