@@ -16,7 +16,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Parser)]
-#[command(name = "databricks-tui", about = "Terminal dashboard for Databricks")]
+#[command(
+    name = "databricks-tui",
+    about = "Terminal dashboard for Databricks",
+    version
+)]
 struct Cli {
     #[arg(long, help = "Databricks CLI profile")]
     profile: Option<String>,
