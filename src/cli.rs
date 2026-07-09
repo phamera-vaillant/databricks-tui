@@ -2,6 +2,27 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::process::Command;
 
+/// Profile names from ~/.databrickscfg, in file order.
+pub fn list_profiles() -> Vec<String> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+    let path = std::path::Path::new(&home).join(".databrickscfg");
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            line.strip_prefix('[')
+                .and_then(|rest| rest.strip_suffix(']'))
+                .map(str::to_string)
+        })
+        .filter(|name| !name.starts_with("__"))
+        .collect()
+}
+
 pub struct DatabricksCli {
     profile: Option<String>,
 }

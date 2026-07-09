@@ -7,7 +7,7 @@ use crossterm::{
 };
 use databricks_tui::{
     app::{App, ThemeMode},
-    cli::DatabricksCli,
+    cli::{self as dbx, DatabricksCli},
     ui,
 };
 use ratatui::backend::CrosstermBackend;
@@ -72,8 +72,10 @@ async fn main() -> Result<()> {
         None => {}
     }
 
-    let cli = Arc::new(DatabricksCli::new(args.profile));
+    let cli = Arc::new(DatabricksCli::new(args.profile.clone()));
     let mut app = App::new(args.refresh, args.theme.into());
+    app.profiles = dbx::list_profiles();
+    app.profile = args.profile.or_else(|| Some("DEFAULT".to_string()));
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -81,7 +83,7 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
 
-    let result = run(&mut terminal, &mut app, &cli).await;
+    let result = run(&mut terminal, &mut app, cli).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -141,13 +143,13 @@ fn uninstall(yes: bool) -> Result<()> {
 async fn run(
     terminal: &mut ratatui::Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
-    cli: &Arc<DatabricksCli>,
+    mut cli: Arc<DatabricksCli>,
 ) -> Result<()> {
     terminal.draw(|f| ui::draw(f, app))?;
     let mut last_tick = Instant::now();
 
     // Workspace host for "open in browser", resolved in the background.
-    app.fetch_host(cli);
+    app.fetch_host(&cli);
 
     loop {
         app.poll_host();
@@ -155,7 +157,7 @@ async fn run(
         if app.poll_detail() {
             needs_redraw = true;
         }
-        if app.poll_action(cli) {
+        if app.poll_action(&cli) {
             needs_redraw = true;
         }
 
@@ -169,7 +171,7 @@ async fn run(
         }
 
         if app.needs_refresh() {
-            app.start_refresh(cli);
+            app.start_refresh(&cli);
             needs_redraw = true;
         }
 
@@ -185,7 +187,7 @@ async fn run(
                 if app.confirm.is_some() {
                     match (key.code, key.modifiers) {
                         (KeyCode::Char('y') | KeyCode::Char('Y'), _) => {
-                            app.confirm_execute(cli);
+                            app.confirm_execute(&cli);
                             needs_redraw = true;
                         }
                         (KeyCode::Char('c'), KeyModifiers::CONTROL) => break,
@@ -193,6 +195,33 @@ async fn run(
                             app.cancel_confirm();
                             needs_redraw = true;
                         }
+                    }
+                } else if app.picker.is_some() {
+                    match (key.code, key.modifiers) {
+                        (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                            break
+                        }
+                        (KeyCode::Esc, _) | (KeyCode::Char('w'), _) => {
+                            app.picker = None;
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
+                            app.picker_next();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
+                            app.picker_prev();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Enter, _) => {
+                            if let Some(new_cli) = app.picker_select() {
+                                cli = new_cli;
+                                app.start_refresh(&cli);
+                                app.fetch_host(&cli);
+                            }
+                            needs_redraw = true;
+                        }
+                        _ => {}
                     }
                 } else if app.detail.is_some() {
                     match (key.code, key.modifiers) {
@@ -242,7 +271,7 @@ async fn run(
                             needs_redraw = true;
                         }
                         (KeyCode::Enter, _) => {
-                            app.open_detail(cli);
+                            app.open_detail(&cli);
                             needs_redraw = true;
                         }
                         (KeyCode::Char('s'), _) => {
@@ -253,11 +282,15 @@ async fn run(
                             app.open_in_browser();
                         }
                         (KeyCode::Char('r'), _) => {
-                            app.start_refresh(cli);
+                            app.start_refresh(&cli);
                             needs_redraw = true;
                         }
                         (KeyCode::Char('t'), _) => {
                             app.theme = app.theme.toggled();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Char('w'), _) => {
+                            app.open_picker();
                             needs_redraw = true;
                         }
                         (KeyCode::Char('z'), _) => {

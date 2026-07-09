@@ -8,6 +8,8 @@ Terminal dashboard for Databricks — monitor clusters, jobs, pipelines, and SQL
 - Drill into any item: formatted key facts and recent activity, raw JSON one key away
 - Act on resources: start/stop clusters, warehouses and pipelines, trigger job runs
 - Jump to any resource in the workspace web UI with one key
+- Browse Lakeview dashboards: pages, widgets and datasets at a glance
+- Switch between workspaces (CLI profiles) without restarting
 - Zoom into any pane, light/dark theme, non-blocking refresh — the UI never freezes
 - Built-in self-upgrade from GitHub releases
 
@@ -74,6 +76,7 @@ them can be slow on busy workspaces.
 | `s` | Action on selected item (start/stop, run job) — asks to confirm |
 | `o` | Open selected item in the workspace web UI |
 | `z` | Zoom focused panel to full screen |
+| `w` | Switch workspace (pick a profile from ~/.databrickscfg) |
 | `Esc` | Close details / exit zoom |
 | `t` | Toggle light/dark theme |
 | `r` | Force refresh |

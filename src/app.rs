@@ -26,6 +26,7 @@ pub enum Panel {
     Jobs,
     Pipelines,
     Warehouses,
+    Dashboards,
 }
 
 impl Panel {
@@ -34,6 +35,7 @@ impl Panel {
         Panel::Jobs,
         Panel::Pipelines,
         Panel::Warehouses,
+        Panel::Dashboards,
     ];
 
     pub fn title(&self) -> &'static str {
@@ -42,6 +44,7 @@ impl Panel {
             Panel::Jobs => "Jobs",
             Panel::Pipelines => "Pipelines",
             Panel::Warehouses => "Warehouses",
+            Panel::Dashboards => "Dashboards",
         }
     }
 
@@ -51,6 +54,7 @@ impl Panel {
             Panel::Jobs => "◈",
             Panel::Pipelines => "⇶",
             Panel::Warehouses => "▣",
+            Panel::Dashboards => "▤",
         }
     }
 
@@ -61,6 +65,7 @@ impl Panel {
             Panel::Jobs => "jobs",
             Panel::Pipelines => "pipelines",
             Panel::Warehouses => "warehouses",
+            Panel::Dashboards => "lakeview",
         }
     }
 }
@@ -102,8 +107,13 @@ pub struct App {
     pub detail: Option<Detail>,
     pub confirm: Option<Confirm>,
     pub flash: Option<(String, Instant)>,
-    pub selected: [usize; 4],
+    pub selected: [usize; 5],
     pub host: Option<String>,
+    /// Available profiles from ~/.databrickscfg and the active one.
+    pub profiles: Vec<String>,
+    pub profile: Option<String>,
+    /// When Some, the workspace picker overlay is open at this index.
+    pub picker: Option<usize>,
     pending: Option<mpsc::UnboundedReceiver<Update>>,
     detail_rx: Option<oneshot::Receiver<DetailData>>,
     action_rx: Option<oneshot::Receiver<Result<String, String>>>,
@@ -118,7 +128,7 @@ impl App {
             focus: Panel::Clusters,
             theme,
             zoomed: false,
-            shapes: vec![None, None, None, None],
+            shapes: vec![None, None, None, None, None],
             user_badge: None,
             error: None,
             refresh_interval: Duration::from_secs(refresh_secs),
@@ -129,8 +139,11 @@ impl App {
             detail: None,
             confirm: None,
             flash: None,
-            selected: [0; 4],
+            selected: [0; 5],
             host: None,
+            profiles: Vec::new(),
+            profile: None,
+            picker: None,
             pending: None,
             detail_rx: None,
             action_rx: None,
@@ -138,6 +151,57 @@ impl App {
             in_flight: 0,
             spinner_frame: 0,
         }
+    }
+
+    pub fn open_picker(&mut self) {
+        if self.profiles.is_empty() {
+            return;
+        }
+        let current = self
+            .profile
+            .as_deref()
+            .and_then(|p| self.profiles.iter().position(|n| n == p))
+            .unwrap_or(0);
+        self.picker = Some(current);
+    }
+
+    pub fn picker_next(&mut self) {
+        if let Some(i) = self.picker {
+            self.picker = Some((i + 1).min(self.profiles.len().saturating_sub(1)));
+        }
+    }
+
+    pub fn picker_prev(&mut self) {
+        if let Some(i) = self.picker {
+            self.picker = Some(i.saturating_sub(1));
+        }
+    }
+
+    /// Confirms the picker selection; returns the new CLI handle to use.
+    pub fn picker_select(&mut self) -> Option<Arc<DatabricksCli>> {
+        let idx = self.picker.take()?;
+        let name = self.profiles.get(idx)?.clone();
+        let profile_arg = if name == "DEFAULT" {
+            None
+        } else {
+            Some(name.clone())
+        };
+        self.profile = Some(name);
+
+        // Drop all workspace-specific state; panes go back to loading.
+        self.shapes = vec![None, None, None, None, None];
+        self.user_badge = None;
+        self.host = None;
+        self.selected = [0; 5];
+        self.detail = None;
+        self.detail_rx = None;
+        self.confirm = None;
+        self.pending = None;
+        self.in_flight = 0;
+        self.loading = false;
+        self.zoomed = false;
+
+        Some(Arc::new(DatabricksCli::new(profile_arg)))
     }
 
     /// Resolves the workspace host in the background — `auth describe` can
@@ -290,6 +354,10 @@ impl App {
     /// Prepares a contextual action for the selected item, pending confirmation:
     /// start/stop for clusters, warehouses and pipelines, run-now for jobs.
     pub fn request_action(&mut self) {
+        // Dashboards have no start/stop/run semantics.
+        if self.focus == Panel::Dashboards {
+            return;
+        }
         let Some(item) = self.selected_item() else {
             return;
         };
@@ -391,6 +459,7 @@ impl App {
             Panel::Jobs => format!("jobs/{id}"),
             Panel::Pipelines => format!("pipelines/{id}"),
             Panel::Warehouses => format!("sql/warehouses/{id}"),
+            Panel::Dashboards => format!("sql/dashboardsv3/{id}"),
         };
         let url = format!("{}/{}", host.trim_end_matches('/'), path);
         #[cfg(target_os = "macos")]
@@ -471,7 +540,7 @@ impl App {
 
         let (tx, rx) = mpsc::unbounded_channel();
         self.pending = Some(rx);
-        self.in_flight = 5;
+        self.in_flight = 6;
 
         // One task per source so each panel updates as soon as its fetch lands,
         // instead of waiting for the slowest of the five.
@@ -490,6 +559,7 @@ impl App {
         spawn_fetch!(|s| Update::Panel(1, s), fetchers::jobs::fetch);
         spawn_fetch!(|s| Update::Panel(2, s), fetchers::pipelines::fetch);
         spawn_fetch!(|s| Update::Panel(3, s), fetchers::warehouses::fetch);
+        spawn_fetch!(|s| Update::Panel(4, s), fetchers::dashboards::fetch);
         spawn_fetch!(
             |s: Result<Shape, String>| Update::Badge(s.ok()),
             fetchers::current_user::fetch

@@ -1,5 +1,6 @@
 pub mod clusters;
 pub mod current_user;
+pub mod dashboards;
 pub mod detail;
 pub mod jobs;
 pub mod pipelines;

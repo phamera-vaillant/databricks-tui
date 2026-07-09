@@ -32,6 +32,10 @@ pub async fn fetch(cli: &DatabricksCli, group: &str, id: &str) -> DetailData {
             activity = pipeline_updates(&json);
             pipeline_summary(&json)
         }
+        "lakeview" => {
+            activity = dashboard_contents(&json);
+            dashboard_summary(&json)
+        }
         _ => warehouse_summary(&json),
     };
 
@@ -216,6 +220,66 @@ fn pipeline_updates(j: &Value) -> Vec<(Status, String)> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn dashboard_summary(j: &Value) -> Vec<(String, String)> {
+    let mut s = Vec::new();
+    push(&mut s, "State", str_of(&j["lifecycle_state"]));
+    push(&mut s, "Path", str_of(&j["path"]));
+    push(&mut s, "Warehouse", str_of(&j["warehouse_id"]));
+    push(&mut s, "Updated", str_of(&j["update_time"]));
+    if let Some(def) = parse_serialized(j) {
+        push(
+            &mut s,
+            "Pages",
+            def["pages"].as_array().map(|p| p.len().to_string()),
+        );
+        push(
+            &mut s,
+            "Datasets",
+            def["datasets"].as_array().map(|d| d.len().to_string()),
+        );
+    }
+    s
+}
+
+/// The dashboard definition is embedded as a JSON string inside the response.
+fn parse_serialized(j: &Value) -> Option<Value> {
+    j["serialized_dashboard"]
+        .as_str()
+        .and_then(|s| serde_json::from_str(s).ok())
+}
+
+/// Pages and widget titles, best effort — Lakeview layouts nest deeply.
+fn dashboard_contents(j: &Value) -> Vec<(Status, String)> {
+    let Some(def) = parse_serialized(j) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for page in def["pages"].as_array().into_iter().flatten() {
+        let page_name = page["displayName"]
+            .as_str()
+            .or_else(|| page["name"].as_str())
+            .unwrap_or("page");
+        out.push((Status::Running, format!("▤ {page_name}")));
+        for item in page["layout"].as_array().into_iter().flatten() {
+            let widget = &item["widget"];
+            let title = widget["spec"]["frame"]["title"]
+                .as_str()
+                .filter(|t| !t.is_empty())
+                .or_else(|| widget["name"].as_str())
+                .unwrap_or("widget");
+            let kind = widget["spec"]["widgetType"].as_str().unwrap_or("");
+            let line = if kind.is_empty() {
+                format!("  · {title}")
+            } else {
+                format!("  · {title} ({kind})")
+            };
+            out.push((Status::Unknown(String::new()), line));
+        }
+    }
+    out.truncate(30);
+    out
 }
 
 fn warehouse_summary(j: &Value) -> Vec<(String, String)> {

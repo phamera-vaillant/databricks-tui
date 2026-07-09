@@ -5,8 +5,8 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, BorderType, Borders, Cell, List, ListItem, ListState, Padding, Paragraph, Row,
-        Table, Wrap,
+        Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Padding, Paragraph,
+        Row, Table, Wrap,
     },
     Frame,
 };
@@ -67,6 +67,7 @@ fn accent(panel: Panel, p: &Palette) -> Color {
         Panel::Jobs => p.jobs,
         Panel::Pipelines => p.pipelines,
         Panel::Warehouses => p.warehouses,
+        Panel::Dashboards => p.key,
     }
 }
 
@@ -119,10 +120,14 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     let right = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+        ])
         .split(body[1]);
 
-    let areas = [left[0], left[1], right[0], right[1]];
+    let areas = [left[0], left[1], right[0], right[1], right[2]];
 
     for (i, panel) in Panel::ALL.iter().enumerate() {
         let focused = app.focus == *panel;
@@ -139,6 +144,57 @@ pub fn draw(f: &mut Frame, app: &App) {
             &p,
         );
     }
+
+    if app.picker.is_some() {
+        draw_picker(f, root[1], app, &p);
+    }
+}
+
+fn draw_picker(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
+    let selected = app.picker.unwrap_or(0);
+    let width = (app
+        .profiles
+        .iter()
+        .map(|s| s.len())
+        .max()
+        .unwrap_or(10)
+        .max(20) as u16
+        + 6)
+    .min(area.width);
+    let height = (app.profiles.len() as u16 + 2).min(area.height);
+    let popup = Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(Line::from(Span::styled(
+            " ⌂ Workspace ",
+            Style::default().fg(p.key).add_modifier(Modifier::BOLD),
+        )))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(p.key))
+        .padding(Padding::horizontal(1));
+    let items: Vec<ListItem> = app
+        .profiles
+        .iter()
+        .map(|name| {
+            let current = app.profile.as_deref() == Some(name.as_str());
+            let marker = if current { "● " } else { "  " };
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, Style::default().fg(p.ok)),
+                Span::styled(name.as_str(), Style::default().fg(p.text)),
+            ]))
+        })
+        .collect();
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+    let mut state = ListState::default().with_selected(Some(selected));
+    f.render_stateful_widget(list, popup, &mut state);
 }
 
 fn draw_detail(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
@@ -188,9 +244,14 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
         })
         .collect();
     if !data.activity.is_empty() {
+        let section = if d.panel == Panel::Dashboards {
+            "Contents"
+        } else {
+            "Recent activity"
+        };
         lines.push(Line::default());
         lines.push(Line::from(Span::styled(
-            "Recent activity",
+            section,
             Style::default().fg(acc).add_modifier(Modifier::BOLD),
         )));
         for (status, text) in &data.activity {
@@ -223,6 +284,11 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
             Style::default().fg(p.dim),
         ),
     ];
+    if let Some(profile) = &app.profile {
+        left.push(Span::styled("  ·  ", Style::default().fg(p.dim)));
+        left.push(Span::styled("⌂ ", Style::default().fg(p.dim)));
+        left.push(Span::styled(profile.as_str(), Style::default().fg(p.key)));
+    }
     if let Some(Shape::Badge(b)) = &app.user_badge {
         left.push(Span::styled("  ·  ", Style::default().fg(p.dim)));
         left.push(Span::styled(
@@ -297,7 +363,19 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
         return;
     }
 
-    let spans = if app.detail.is_some() {
+    let spans = if app.picker.is_some() {
+        vec![
+            dim(" "),
+            key("j"),
+            dim("/"),
+            key("k"),
+            dim(" select   "),
+            key("enter"),
+            dim(" switch workspace   "),
+            key("esc"),
+            dim(" cancel"),
+        ]
+    } else if app.detail.is_some() {
         vec![
             dim(" "),
             key("esc"),
@@ -334,6 +412,8 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
             dim(" open   "),
             key("z"),
             dim(if app.zoomed { " unzoom   " } else { " zoom   " }),
+            key("w"),
+            dim(" workspace   "),
             key("t"),
             dim(" theme   "),
             key("r"),
