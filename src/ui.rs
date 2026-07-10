@@ -172,6 +172,69 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.picker.is_some() {
         draw_picker(f, root[1], app, &p);
     }
+    if app.wh_picker.is_some() {
+        draw_wh_picker(f, root[1], app, &p);
+    }
+}
+
+fn draw_wh_picker(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
+    let Some(picker) = &app.wh_picker else {
+        return;
+    };
+    let warehouses = app.warehouses();
+    let width = (warehouses
+        .iter()
+        .map(|(n, _, _)| n.len())
+        .max()
+        .unwrap_or(10)
+        .max(24) as u16
+        + 8)
+    .min(area.width);
+    let height = (warehouses.len() as u16 + 2).min(area.height);
+    let popup = Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(Line::from(Span::styled(
+            " ▣ Preview warehouse ",
+            Style::default()
+                .fg(p.warehouses)
+                .add_modifier(Modifier::BOLD),
+        )))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(p.warehouses))
+        .padding(Padding::horizontal(1));
+    let current_id = app.preview_warehouse.as_ref().map(|(id, _)| id.as_str());
+    let items: Vec<ListItem> = warehouses
+        .iter()
+        .map(|(name, id, running)| {
+            let dot = if *running { p.ok } else { p.dim };
+            let marker = if current_id == Some(id.as_str()) {
+                "» "
+            } else {
+                "  "
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, Style::default().fg(p.key)),
+                Span::styled("● ", Style::default().fg(dot)),
+                Span::styled(name.as_str(), Style::default().fg(p.text)),
+                Span::styled(
+                    if *running { "  running" } else { "  idle" },
+                    Style::default().fg(p.dim),
+                ),
+            ]))
+        })
+        .collect();
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+    let mut state = ListState::default().with_selected(Some(picker.index));
+    f.render_stateful_widget(list, popup, &mut state);
 }
 
 const WORDMARK_TOP: &str = "█▀▄ ▄▀█ ▀█▀ ▄▀█ █▄▄ █▀█ █ █▀▀ █▄▀ █▀";
@@ -311,6 +374,7 @@ fn draw_preview(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
             format!("{}{} · preview ", pv.name, row_info),
             Style::default().fg(p.text).add_modifier(Modifier::BOLD),
         ),
+        Span::styled(format!("via {} ", pv.warehouse), Style::default().fg(p.dim)),
     ]);
     let block = Block::default()
         .title(title)
@@ -552,7 +616,19 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
         return;
     }
 
-    let spans = if app.preview.is_some() {
+    let spans = if app.wh_picker.is_some() {
+        vec![
+            dim(" "),
+            key("j"),
+            dim("/"),
+            key("k"),
+            dim(" select   "),
+            key("enter"),
+            dim(" run preview   "),
+            key("esc"),
+            dim(" cancel"),
+        ]
+    } else if app.preview.is_some() {
         vec![
             dim(" "),
             key("esc"),

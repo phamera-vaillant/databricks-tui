@@ -249,6 +249,29 @@ async fn run(
                         }
                         _ => {}
                     }
+                } else if app.wh_picker.is_some() {
+                    match (key.code, key.modifiers) {
+                        (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                            break
+                        }
+                        (KeyCode::Esc, _) => {
+                            app.wh_picker_cancel();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
+                            app.wh_picker_next();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
+                            app.wh_picker_prev();
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Enter, _) => {
+                            app.wh_picker_select(&cli);
+                            needs_redraw = true;
+                        }
+                        _ => {}
+                    }
                 } else if app.preview.is_some() {
                     match (key.code, key.modifiers) {
                         (KeyCode::Char('q'), _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
@@ -332,7 +355,11 @@ async fn run(
                             app.open_in_browser();
                         }
                         (KeyCode::Char('p'), _) => {
-                            app.open_preview(&cli);
+                            app.open_preview(&cli, false);
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Char('P'), _) => {
+                            app.open_preview(&cli, true);
                             needs_redraw = true;
                         }
                         (KeyCode::Char('r'), _) => {

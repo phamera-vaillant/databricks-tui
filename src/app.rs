@@ -91,9 +91,17 @@ pub struct Detail {
 /// Full-screen sample-data view for a Unity Catalog table or view.
 pub struct Preview {
     pub name: String,
+    /// Display name of the warehouse running the query.
+    pub warehouse: String,
     /// None while the query runs; then rows or an error.
     pub data: Option<Result<crate::shape::TableData, String>>,
     pub scroll: usize,
+}
+
+/// Overlay for choosing which SQL warehouse runs a preview.
+pub struct WhPicker {
+    pub index: usize,
+    table: String,
 }
 
 /// A pending destructive/mutating action awaiting a y/n keystroke.
@@ -134,6 +142,9 @@ pub struct App {
     uc_rx: Option<oneshot::Receiver<Result<Shape, String>>>,
     pub preview: Option<Preview>,
     preview_rx: Option<oneshot::Receiver<Result<crate::shape::TableData, String>>>,
+    pub wh_picker: Option<WhPicker>,
+    /// Session-remembered (id, name) of the warehouse used for previews.
+    pub preview_warehouse: Option<(String, String)>,
     pending: Option<mpsc::UnboundedReceiver<Update>>,
     detail_rx: Option<oneshot::Receiver<DetailData>>,
     action_rx: Option<oneshot::Receiver<Result<String, String>>>,
@@ -172,6 +183,8 @@ impl App {
             uc_rx: None,
             preview: None,
             preview_rx: None,
+            wh_picker: None,
+            preview_warehouse: None,
             pending: None,
             detail_rx: None,
             action_rx: None,
@@ -248,6 +261,8 @@ impl App {
         self.uc_rx = None;
         self.preview = None;
         self.preview_rx = None;
+        self.wh_picker = None;
+        self.preview_warehouse = None;
         self.pending = None;
         self.in_flight = 0;
         self.loading = false;
@@ -402,20 +417,24 @@ impl App {
         });
     }
 
-    /// The warehouse used for previews: a running one if any, else the first.
-    fn pick_warehouse(&self) -> Option<String> {
+    /// All known warehouses as (name, id, running).
+    pub fn warehouses(&self) -> Vec<(String, String, bool)> {
         let Some(Shape::List(items)) = &self.shapes[3] else {
-            return None;
+            return Vec::new();
         };
         items
             .iter()
-            .find(|i| matches!(i.status, Status::Running))
-            .or_else(|| items.first())
-            .and_then(|i| i.id.clone())
+            .filter_map(|i| {
+                let id = i.id.clone()?;
+                Some((i.name.clone(), id, matches!(i.status, Status::Running)))
+            })
+            .collect()
     }
 
-    /// Runs a sample-data query for the selected table or view.
-    pub fn open_preview(&mut self, cli: &Arc<DatabricksCli>) {
+    /// Runs a sample-data query for the selected table or view. With
+    /// `force_pick` (or several warehouses and no remembered choice) a
+    /// warehouse picker opens first.
+    pub fn open_preview(&mut self, cli: &Arc<DatabricksCli>, force_pick: bool) {
         if self.focus != Panel::Catalog {
             return;
         }
@@ -428,15 +447,78 @@ impl App {
         let Some(full_name) = item.id.clone() else {
             return;
         };
-        let Some(warehouse) = self.pick_warehouse() else {
+        let warehouses = self.warehouses();
+        if warehouses.is_empty() {
             self.flash = Some((
                 "✗ no SQL warehouse available for previews".to_string(),
                 Instant::now(),
             ));
             return;
+        }
+        if !force_pick {
+            if let Some((id, name)) = self.preview_warehouse.clone() {
+                self.start_preview_query(cli, full_name, id, name);
+                return;
+            }
+            if let [(name, id, _)] = warehouses.as_slice() {
+                self.preview_warehouse = Some((id.clone(), name.clone()));
+                self.start_preview_query(cli, full_name, id.clone(), name.clone());
+                return;
+            }
+        }
+        // Default the cursor to the remembered choice, else a running warehouse.
+        let index = self
+            .preview_warehouse
+            .as_ref()
+            .and_then(|(id, _)| warehouses.iter().position(|(_, wid, _)| wid == id))
+            .or_else(|| warehouses.iter().position(|(_, _, running)| *running))
+            .unwrap_or(0);
+        self.wh_picker = Some(WhPicker {
+            index,
+            table: full_name,
+        });
+    }
+
+    pub fn wh_picker_next(&mut self) {
+        let len = self.warehouses().len();
+        if let Some(p) = &mut self.wh_picker {
+            p.index = (p.index + 1).min(len.saturating_sub(1));
+        }
+    }
+
+    pub fn wh_picker_prev(&mut self) {
+        if let Some(p) = &mut self.wh_picker {
+            p.index = p.index.saturating_sub(1);
+        }
+    }
+
+    pub fn wh_picker_cancel(&mut self) {
+        self.wh_picker = None;
+    }
+
+    /// Confirms the warehouse choice, remembers it, and starts the preview.
+    pub fn wh_picker_select(&mut self, cli: &Arc<DatabricksCli>) {
+        let Some(picker) = self.wh_picker.take() else {
+            return;
         };
+        let warehouses = self.warehouses();
+        let Some((name, id, _)) = warehouses.get(picker.index) else {
+            return;
+        };
+        self.preview_warehouse = Some((id.clone(), name.clone()));
+        self.start_preview_query(cli, picker.table, id.clone(), name.clone());
+    }
+
+    fn start_preview_query(
+        &mut self,
+        cli: &Arc<DatabricksCli>,
+        full_name: String,
+        warehouse_id: String,
+        warehouse_name: String,
+    ) {
         self.preview = Some(Preview {
             name: full_name.clone(),
+            warehouse: warehouse_name,
             data: None,
             scroll: 0,
         });
@@ -444,7 +526,7 @@ impl App {
         self.preview_rx = Some(rx);
         let cli = Arc::clone(cli);
         tokio::spawn(async move {
-            let result = fetchers::preview::fetch(&cli, &full_name, &warehouse).await;
+            let result = fetchers::preview::fetch(&cli, &full_name, &warehouse_id).await;
             let _ = tx.send(result);
         });
     }

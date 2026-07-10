@@ -81,6 +81,7 @@ them can be slow on busy workspaces.
 | `Enter` | Open details for the selected item (drills down in Unity Catalog) |
 | `Backspace` | Go up one level in the Unity Catalog tree |
 | `p` | Preview sample data for the selected table/view (may start a warehouse) |
+| `P` | Choose which SQL warehouse runs previews |
 | `s` | Action on selected item (start/stop, run job) — asks to confirm |
 | `o` | Open selected item in the workspace web UI |
 | `z` | Zoom focused panel to full screen |
