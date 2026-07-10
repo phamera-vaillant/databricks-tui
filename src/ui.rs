@@ -123,6 +123,13 @@ pub fn draw(f: &mut Frame, app: &App) {
             app.spinner(),
             &p,
         );
+        // Overlays must still render on top of the zoomed pane.
+        if app.picker.is_some() {
+            draw_picker(f, root[1], app, &p);
+        }
+        if app.wh_picker.is_some() {
+            draw_wh_picker(f, root[1], app, &p);
+        }
         return;
     }
 
