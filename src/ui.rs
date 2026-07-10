@@ -593,7 +593,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
             dim(" quit"),
         ]
     } else {
-        vec![
+        let mut spans = vec![
             dim(" "),
             key("tab"),
             dim("/"),
@@ -611,12 +611,26 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
             } else {
                 " details   "
             }),
-            key("s"),
-            dim(" action   "),
-            key("⌫"),
-            dim(" up   "),
-            key("p"),
-            dim(" preview   "),
+        ];
+        // Only show keys that do something in the focused pane.
+        match app.focus {
+            Panel::Catalog => {
+                if !app.uc_path.is_empty() {
+                    spans.push(key("bksp"));
+                    spans.push(dim(" up   "));
+                }
+                if app.uc_path.len() == 2 {
+                    spans.push(key("p"));
+                    spans.push(dim(" preview   "));
+                }
+            }
+            Panel::Dashboards => {}
+            _ => {
+                spans.push(key("s"));
+                spans.push(dim(" action   "));
+            }
+        }
+        spans.extend([
             key("o"),
             dim(" open   "),
             key("z"),
@@ -629,7 +643,8 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
             dim(" refresh   "),
             key("q"),
             dim(" quit"),
-        ]
+        ]);
+        spans
     };
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
