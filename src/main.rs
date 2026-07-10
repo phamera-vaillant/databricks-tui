@@ -160,6 +160,9 @@ async fn run(
         if app.poll_action(&cli) {
             needs_redraw = true;
         }
+        if app.poll_uc() {
+            needs_redraw = true;
+        }
 
         // Splash: animate fast, expire on its deadline.
         if let Some(t) = app.splash_until {
@@ -291,7 +294,12 @@ async fn run(
                             needs_redraw = true;
                         }
                         (KeyCode::Enter, _) => {
-                            app.open_detail(&cli);
+                            if !app.uc_drill(&cli) {
+                                app.open_detail(&cli);
+                            }
+                            needs_redraw = true;
+                        }
+                        (KeyCode::Backspace, _) if app.uc_up(&cli) => {
                             needs_redraw = true;
                         }
                         (KeyCode::Char('s'), _) => {

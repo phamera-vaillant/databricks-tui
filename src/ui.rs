@@ -25,6 +25,7 @@ struct Palette {
     jobs: Color,
     pipelines: Color,
     warehouses: Color,
+    catalog: Color,
 }
 
 fn palette(mode: ThemeMode) -> Palette {
@@ -43,6 +44,7 @@ fn palette(mode: ThemeMode) -> Palette {
             jobs: Color::Magenta,
             pipelines: Color::Green,
             warehouses: Color::Blue,
+            catalog: Color::Rgb(255, 140, 66),
         },
         // Light theme uses explicit darker shades that stay readable on a white background.
         ThemeMode::Light => Palette {
@@ -58,6 +60,7 @@ fn palette(mode: ThemeMode) -> Palette {
             jobs: Color::Rgb(162, 28, 175),
             pipelines: Color::Rgb(21, 128, 61),
             warehouses: Color::Rgb(29, 78, 216),
+            catalog: Color::Rgb(194, 65, 12),
         },
     }
 }
@@ -69,6 +72,7 @@ fn accent(panel: Panel, p: &Palette) -> Color {
         Panel::Pipelines => p.pipelines,
         Panel::Warehouses => p.warehouses,
         Panel::Dashboards => p.key,
+        Panel::Catalog => p.catalog,
     }
 }
 
@@ -110,6 +114,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             true,
             Some(app.selection(idx)),
             false,
+            &app.uc_path.join("."),
             app.spinner(),
             &p,
         );
@@ -121,21 +126,22 @@ pub fn draw(f: &mut Frame, app: &App) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(root[1]);
 
+    let rows = [
+        Constraint::Percentage(34),
+        Constraint::Percentage(33),
+        Constraint::Percentage(33),
+    ];
     let left = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints(rows)
         .split(body[0]);
 
     let right = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-            Constraint::Percentage(33),
-        ])
+        .constraints(rows)
         .split(body[1]);
 
-    let areas = [left[0], left[1], right[0], right[1], right[2]];
+    let areas = [left[0], left[1], right[0], right[1], right[2], left[2]];
 
     for (i, panel) in Panel::ALL.iter().enumerate() {
         let focused = app.focus == *panel;
@@ -152,6 +158,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             focused,
             selected,
             fresh,
+            &app.uc_path.join("."),
             app.spinner(),
             &p,
         );
@@ -333,10 +340,10 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
         })
         .collect();
     if !data.activity.is_empty() {
-        let section = if d.panel == Panel::Dashboards {
-            "Contents"
-        } else {
-            "Recent activity"
+        let section = match d.panel {
+            Panel::Dashboards => "Contents",
+            Panel::Catalog => "Columns",
+            _ => "Recent activity",
         };
         lines.push(Line::default());
         lines.push(Line::from(Span::styled(
@@ -507,9 +514,15 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App, p: &Palette) {
             key("k"),
             dim(" select   "),
             key("enter"),
-            dim(" details   "),
+            dim(if app.focus == Panel::Catalog && app.uc_path.len() < 2 {
+                " open   "
+            } else {
+                " details   "
+            }),
             key("s"),
             dim(" action   "),
+            key("⌫"),
+            dim(" up   "),
             key("o"),
             dim(" open   "),
             key("z"),
@@ -536,6 +549,7 @@ fn draw_panel(
     focused: bool,
     selected: Option<usize>,
     fresh: bool,
+    breadcrumb: &str,
     spinner: &str,
     p: &Palette,
 ) {
@@ -553,6 +567,11 @@ fn draw_panel(
         Some(Shape::Table(data)) => format!(" · {}", data.rows.len()),
         _ => String::new(),
     };
+    let crumb = if panel == Panel::Catalog && !breadcrumb.is_empty() {
+        format!(" ▸ {breadcrumb}")
+    } else {
+        String::new()
+    };
     // A short reversed flash on the title when fresh data lands.
     let title_style = if fresh {
         Style::default()
@@ -564,7 +583,7 @@ fn draw_panel(
     };
     let title = Line::from(vec![
         Span::styled(format!(" {} ", panel.icon()), Style::default().fg(accent)),
-        Span::styled(format!("{}{} ", panel.title(), count), title_style),
+        Span::styled(format!("{}{}{} ", panel.title(), crumb, count), title_style),
     ]);
     let block = Block::default()
         .title(title)
@@ -591,6 +610,7 @@ fn draw_panel(
                 Panel::Pipelines => "no pipelines",
                 Panel::Warehouses => "no warehouses",
                 Panel::Dashboards => "no dashboards yet",
+                Panel::Catalog => "nothing at this level",
             };
             let par = Paragraph::new(format!("∅ {empty}"))
                 .style(Style::default().fg(p.dim))

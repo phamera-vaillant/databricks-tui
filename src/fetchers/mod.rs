@@ -1,3 +1,4 @@
+pub mod catalog;
 pub mod clusters;
 pub mod current_user;
 pub mod dashboards;

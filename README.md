@@ -1,6 +1,6 @@
 # databricks-tui
 
-Terminal dashboard for Databricks — monitor clusters, jobs, pipelines, and SQL warehouses in one view.
+Terminal dashboard for Databricks — monitor compute, jobs, pipelines, SQL warehouses, dashboards, and Unity Catalog in one view.
 
 - Animated splash screen and a Databricks-branded look: product-named panes
   (Compute, Lakeflow, SQL Warehouses, AI/BI Dashboards), status chips, and
@@ -12,6 +12,8 @@ Terminal dashboard for Databricks — monitor clusters, jobs, pipelines, and SQL
 - Act on resources: start/stop clusters, warehouses and pipelines, trigger job runs
 - Jump to any resource in the workspace web UI with one key
 - Browse Lakeview dashboards: pages, widgets and datasets at a glance
+- Unity Catalog browser: drill from catalogs into schemas, tables, views and
+  volumes; table details include the full column schema
 - Switch between workspaces (CLI profiles) without restarting
 - Zoom into any pane, light/dark theme, non-blocking refresh — the UI never freezes
 - Built-in self-upgrade from GitHub releases
@@ -75,7 +77,8 @@ them can be slow on busy workspaces.
 | `Tab` / `→` / `l` | Focus next panel |
 | `Shift+Tab` / `←` / `h` | Focus previous panel |
 | `↓` / `j`, `↑` / `k` | Select item in focused panel |
-| `Enter` | Open details for the selected item |
+| `Enter` | Open details for the selected item (drills down in Unity Catalog) |
+| `Backspace` | Go up one level in the Unity Catalog tree |
 | `s` | Action on selected item (start/stop, run job) — asks to confirm |
 | `o` | Open selected item in the workspace web UI |
 | `z` | Zoom focused panel to full screen |

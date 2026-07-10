@@ -27,6 +27,7 @@ pub enum Panel {
     Pipelines,
     Warehouses,
     Dashboards,
+    Catalog,
 }
 
 impl Panel {
@@ -36,6 +37,7 @@ impl Panel {
         Panel::Pipelines,
         Panel::Warehouses,
         Panel::Dashboards,
+        Panel::Catalog,
     ];
 
     pub fn title(&self) -> &'static str {
@@ -45,6 +47,7 @@ impl Panel {
             Panel::Pipelines => "Lakeflow Pipelines",
             Panel::Warehouses => "SQL Warehouses",
             Panel::Dashboards => "AI/BI Dashboards",
+            Panel::Catalog => "Unity Catalog",
         }
     }
 
@@ -55,6 +58,7 @@ impl Panel {
             Panel::Pipelines => "⇶",
             Panel::Warehouses => "▣",
             Panel::Dashboards => "▤",
+            Panel::Catalog => "◫",
         }
     }
 
@@ -66,6 +70,7 @@ impl Panel {
             Panel::Pipelines => "pipelines",
             Panel::Warehouses => "warehouses",
             Panel::Dashboards => "lakeview",
+            Panel::Catalog => "tables",
         }
     }
 }
@@ -74,6 +79,8 @@ pub struct Detail {
     pub panel: Panel,
     pub name: String,
     pub id: String,
+    /// Item kind for Unity Catalog leaves (TABLE / VIEW / VOLUME).
+    pub kind: Option<String>,
     /// None while the fetch is in flight.
     pub data: Option<DetailData>,
     /// Toggles between the formatted summary and the raw JSON.
@@ -107,13 +114,16 @@ pub struct App {
     pub detail: Option<Detail>,
     pub confirm: Option<Confirm>,
     pub flash: Option<(String, Instant)>,
-    pub selected: [usize; 5],
+    pub selected: [usize; 6],
     pub host: Option<String>,
     /// Available profiles from ~/.databrickscfg and the active one.
     pub profiles: Vec<String>,
     pub profile: Option<String>,
     /// When Some, the workspace picker overlay is open at this index.
     pub picker: Option<usize>,
+    /// Current position in the Unity Catalog tree: [], [catalog] or [catalog, schema].
+    pub uc_path: Vec<String>,
+    uc_rx: Option<oneshot::Receiver<Result<Shape, String>>>,
     pending: Option<mpsc::UnboundedReceiver<Update>>,
     detail_rx: Option<oneshot::Receiver<DetailData>>,
     action_rx: Option<oneshot::Receiver<Result<String, String>>>,
@@ -123,7 +133,7 @@ pub struct App {
     /// Splash screen deadline; None once dismissed.
     pub splash_until: Option<Instant>,
     /// When each pane last received fresh data — drives the title flash.
-    pub updated_at: [Option<Instant>; 5],
+    pub updated_at: [Option<Instant>; 6],
 }
 
 impl App {
@@ -132,7 +142,7 @@ impl App {
             focus: Panel::Clusters,
             theme,
             zoomed: false,
-            shapes: vec![None, None, None, None, None],
+            shapes: vec![None; 6],
             user_badge: None,
             error: None,
             refresh_interval: Duration::from_secs(refresh_secs),
@@ -143,11 +153,13 @@ impl App {
             detail: None,
             confirm: None,
             flash: None,
-            selected: [0; 5],
+            selected: [0; 6],
             host: None,
             profiles: Vec::new(),
             profile: None,
             picker: None,
+            uc_path: Vec::new(),
+            uc_rx: None,
             pending: None,
             detail_rx: None,
             action_rx: None,
@@ -155,7 +167,7 @@ impl App {
             in_flight: 0,
             spinner_frame: 0,
             splash_until: Some(Instant::now() + Duration::from_millis(1600)),
-            updated_at: [None; 5],
+            updated_at: [None; 6],
         }
     }
 
@@ -213,13 +225,15 @@ impl App {
         self.profile = Some(name);
 
         // Drop all workspace-specific state; panes go back to loading.
-        self.shapes = vec![None, None, None, None, None];
+        self.shapes = vec![None; 6];
         self.user_badge = None;
         self.host = None;
-        self.selected = [0; 5];
+        self.selected = [0; 6];
         self.detail = None;
         self.detail_rx = None;
         self.confirm = None;
+        self.uc_path.clear();
+        self.uc_rx = None;
         self.pending = None;
         self.in_flight = 0;
         self.loading = false;
@@ -308,10 +322,15 @@ impl App {
         let Some(id) = item.id.clone() else {
             return;
         };
+        let kind = match &item.status {
+            Status::Unknown(k) if !k.is_empty() => Some(k.clone()),
+            _ => None,
+        };
         self.detail = Some(Detail {
             panel: self.focus,
             name: item.name.clone(),
             id: id.clone(),
+            kind,
             data: None,
             show_raw: false,
             scroll: 0,
@@ -320,11 +339,75 @@ impl App {
         let (tx, rx) = oneshot::channel();
         self.detail_rx = Some(rx);
         let cli = Arc::clone(cli);
-        let group = self.focus.cli_group();
+        let group = match &self.detail.as_ref().unwrap().kind {
+            Some(k) if k == "VOLUME" => "volumes",
+            _ => self.focus.cli_group(),
+        };
         tokio::spawn(async move {
             let data = fetchers::detail::fetch(&cli, group, &id).await;
             let _ = tx.send(data);
         });
+    }
+
+    /// Descends one level in the Unity Catalog tree. Returns false when the
+    /// selection is a leaf (caller should open the detail view instead).
+    pub fn uc_drill(&mut self, cli: &Arc<DatabricksCli>) -> bool {
+        if self.focus != Panel::Catalog || self.uc_path.len() >= 2 {
+            return false;
+        }
+        let Some(item) = self.selected_item() else {
+            return true; // empty pane: swallow the key
+        };
+        self.uc_path.push(item.name.clone());
+        self.refresh_catalog(cli);
+        true
+    }
+
+    /// Ascends one level; returns false if already at the catalog root.
+    pub fn uc_up(&mut self, cli: &Arc<DatabricksCli>) -> bool {
+        if self.focus != Panel::Catalog || self.uc_path.is_empty() {
+            return false;
+        }
+        self.uc_path.pop();
+        self.refresh_catalog(cli);
+        true
+    }
+
+    fn refresh_catalog(&mut self, cli: &Arc<DatabricksCli>) {
+        self.shapes[5] = None;
+        self.selected[5] = 0;
+        let (tx, rx) = oneshot::channel();
+        self.uc_rx = Some(rx);
+        let cli = Arc::clone(cli);
+        let path = self.uc_path.clone();
+        tokio::spawn(async move {
+            let result = fetchers::catalog::fetch(&cli, &path)
+                .await
+                .map_err(|e| format!("{e:#}"));
+            let _ = tx.send(result);
+        });
+    }
+
+    pub fn poll_uc(&mut self) -> bool {
+        let Some(rx) = &mut self.uc_rx else {
+            return false;
+        };
+        match rx.try_recv() {
+            Ok(result) => {
+                self.shapes[5] = Some(match result {
+                    Ok(shape) => shape,
+                    Err(e) => Shape::Text(format!("✗ {e}")),
+                });
+                self.updated_at[5] = Some(Instant::now());
+                self.uc_rx = None;
+                true
+            }
+            Err(oneshot::error::TryRecvError::Empty) => false,
+            Err(oneshot::error::TryRecvError::Closed) => {
+                self.uc_rx = None;
+                true
+            }
+        }
     }
 
     pub fn close_detail(&mut self) {
@@ -378,8 +461,8 @@ impl App {
     /// Prepares a contextual action for the selected item, pending confirmation:
     /// start/stop for clusters, warehouses and pipelines, run-now for jobs.
     pub fn request_action(&mut self) {
-        // Dashboards have no start/stop/run semantics.
-        if self.focus == Panel::Dashboards {
+        // Dashboards and Unity Catalog objects have no start/stop/run semantics.
+        if matches!(self.focus, Panel::Dashboards | Panel::Catalog) {
             return;
         }
         let Some(item) = self.selected_item() else {
@@ -484,6 +567,7 @@ impl App {
             Panel::Pipelines => format!("pipelines/{id}"),
             Panel::Warehouses => format!("sql/warehouses/{id}"),
             Panel::Dashboards => format!("sql/dashboardsv3/{id}"),
+            Panel::Catalog => format!("explore/data/{}", id.replace('.', "/")),
         };
         let url = format!("{}/{}", host.trim_end_matches('/'), path);
         #[cfg(target_os = "macos")]
@@ -568,7 +652,7 @@ impl App {
 
         let (tx, rx) = mpsc::unbounded_channel();
         self.pending = Some(rx);
-        self.in_flight = 6;
+        self.in_flight = 7;
 
         // One task per source so each panel updates as soon as its fetch lands,
         // instead of waiting for the slowest of the five.
@@ -592,6 +676,17 @@ impl App {
             |s: Result<Shape, String>| Update::Badge(s.ok()),
             fetchers::current_user::fetch
         );
+        {
+            let cli = Arc::clone(cli);
+            let tx = tx.clone();
+            let path = self.uc_path.clone();
+            tokio::spawn(async move {
+                let result = fetchers::catalog::fetch(&cli, &path)
+                    .await
+                    .map_err(|e| format!("{e:#}"));
+                let _ = tx.send(Update::Panel(5, result));
+            });
+        }
     }
 
     /// Applies any fetch results that have arrived; returns true if the UI should redraw.

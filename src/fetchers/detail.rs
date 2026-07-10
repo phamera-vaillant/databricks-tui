@@ -6,7 +6,8 @@ use serde_json::Value;
 /// activity, and the raw JSON. Never fails — errors land in `raw`.
 pub async fn fetch(cli: &DatabricksCli, group: &str, id: &str) -> DetailData {
     // The activity call is independent of `get` — run them concurrently.
-    let get_args = [group, "get", id];
+    let verb = if group == "volumes" { "read" } else { "get" };
+    let get_args = [group, verb, id];
     let get = cli.run(&get_args);
     let (main, mut activity) = match group {
         "clusters" => tokio::join!(get, cluster_events(cli, id)),
@@ -36,6 +37,11 @@ pub async fn fetch(cli: &DatabricksCli, group: &str, id: &str) -> DetailData {
             activity = dashboard_contents(&json);
             dashboard_summary(&json)
         }
+        "tables" => {
+            activity = table_columns(&json);
+            table_summary(&json)
+        }
+        "volumes" => volume_summary(&json),
         _ => warehouse_summary(&json),
     };
 
@@ -280,6 +286,54 @@ fn dashboard_contents(j: &Value) -> Vec<(Status, String)> {
     }
     out.truncate(30);
     out
+}
+
+fn table_summary(j: &Value) -> Vec<(String, String)> {
+    let mut s = Vec::new();
+    push(&mut s, "Type", str_of(&j["table_type"]));
+    push(&mut s, "Format", str_of(&j["data_source_format"]));
+    push(&mut s, "Owner", str_of(&j["owner"]));
+    push(&mut s, "Location", str_of(&j["storage_location"]));
+    push(&mut s, "Comment", str_of(&j["comment"]));
+    push(
+        &mut s,
+        "Updated",
+        j["updated_at"].as_u64().map(relative_time),
+    );
+    s
+}
+
+/// Column list rendered as the activity section of a table detail.
+fn table_columns(j: &Value) -> Vec<(Status, String)> {
+    j["columns"]
+        .as_array()
+        .map(|cols| {
+            cols.iter()
+                .map(|c| {
+                    let name = c["name"].as_str().unwrap_or("?");
+                    let ty = c["type_text"]
+                        .as_str()
+                        .or_else(|| c["type_name"].as_str())
+                        .unwrap_or("");
+                    (Status::Unknown(String::new()), format!("{name}  ·  {ty}"))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn volume_summary(j: &Value) -> Vec<(String, String)> {
+    let mut s = Vec::new();
+    push(&mut s, "Type", str_of(&j["volume_type"]));
+    push(&mut s, "Owner", str_of(&j["owner"]));
+    push(&mut s, "Location", str_of(&j["storage_location"]));
+    push(&mut s, "Comment", str_of(&j["comment"]));
+    push(
+        &mut s,
+        "Updated",
+        j["updated_at"].as_u64().map(relative_time),
+    );
+    s
 }
 
 fn warehouse_summary(j: &Value) -> Vec<(String, String)> {
